@@ -6,7 +6,7 @@
 
 **Architecture:** Use one pinned external runtime dependency, ScenarioRunner v0.9.16, for scenario orchestration and criteria. Keep perception, language alignment, behavior planning, safety arbitration, route planning, and control behind typed Python interfaces. Run lightweight perception continuously, invoke a local 3B-class VLM only for complex commands, and keep deterministic safety/control active independently of model health.
 
-**Tech Stack:** Windows 11, PowerShell, Python 3.12, CARLA 0.9.16 Python wheel, ScenarioRunner v0.9.16, NumPy, OpenCV, Ultralytics detector, PyTorch/Transformers for Qwen2.5-VL-3B-AWQ evaluation, pytest, JSON/JSONL logs.
+**Tech Stack:** Windows 11, PowerShell, Conda environment `carla` with Python 3.12, CARLA 0.9.16, ScenarioRunner v0.9.16, NumPy, OpenCV, Ultralytics detector, PyTorch/Transformers for Qwen2.5-VL-3B-AWQ evaluation, pytest, JSON/JSONL logs.
 
 ---
 
@@ -24,7 +24,7 @@ The approved specification contains four independently testable phases. Execute 
 ```text
 pyproject.toml                         # package metadata and dependency groups
 .gitignore                             # generated data, models, external checkout, logs
-scripts/bootstrap.ps1                  # Python 3.12 venv and CARLA wheel installation
+scripts/bootstrap.ps1                  # validate and prepare the existing Conda carla environment
 scripts/fetch_scenario_runner.ps1      # pinned ScenarioRunner checkout
 scripts/run_scenario.ps1               # CARLA + ScenarioRunner + ego agent entry point
 scripts/benchmark_vlm.ps1              # local model latency/VRAM benchmark
@@ -64,7 +64,7 @@ Do not commit CARLA binaries, model weights, recorded sensor data, or the Scenar
 
 ## Phase 1: Foundation and ScenarioRunner
 
-### Task 1: Establish the Python 3.12 project and reproducible environment
+### Task 1: Establish the Conda carla project baseline
 
 **Files:**
 - Create: `pyproject.toml`
@@ -94,7 +94,7 @@ def test_package_imports():
 
 Run: `python -m pytest tests/unit/test_environment_contract.py -v`
 
-Expected: collection fails because pytest/package setup is absent, and the current default Python is 3.13 rather than 3.12.
+Expected: collection fails because pytest/package setup is absent. The system default Python is 3.13, so every project command must explicitly run inside Conda environment `carla`.
 
 - [ ] **Step 3: Create package metadata and bootstrap script**
 
@@ -136,15 +136,13 @@ addopts = "-ra"
 # scripts/bootstrap.ps1
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
-$Python = "py"
+$PythonPrefix = @("run", "-n", "carla", "python")
 
-& $Python -3.12 -m venv "$Root\.venv"
-$VenvPython = "$Root\.venv\Scripts\python.exe"
-& $VenvPython -m pip install --upgrade pip
-& $VenvPython -m pip install -e "$Root[dev]"
-& $VenvPython -m pip install "$Root\CARLA_0.9.16\PythonAPI\carla\dist\carla-0.9.16-cp312-cp312-win_amd64.whl"
-& $VenvPython -c "import carla; print('CARLA Python API import passed')"
-& $VenvPython -m pytest "$Root\tests\unit\test_environment_contract.py" -v
+& conda @PythonPrefix --version
+& conda @PythonPrefix -c "import sys; assert sys.version_info[:2] == (3, 12), sys.version"
+& conda @PythonPrefix -c "import carla; print('CARLA Python API import passed')"
+& conda @PythonPrefix -m pip install -e "${Root}[dev]"
+& conda @PythonPrefix -m pytest "$Root\tests\unit\test_environment_contract.py" -v
 ```
 
 ```python
@@ -168,13 +166,13 @@ artifacts/
 
 Run: `powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap.ps1`
 
-Expected: `CARLA Python API import passed` and `2 passed`.
+Expected: Python 3.12, `CARLA Python API import passed`, and `2 passed`.
 
 - [ ] **Step 5: Commit only Task 1 files**
 
 ```powershell
 git add pyproject.toml .gitignore scripts/bootstrap.ps1 src/carla_driving/__init__.py tests/unit/test_environment_contract.py
-git commit -m "build: add Python 3.12 CARLA development environment"
+git commit -m "build: add Conda carla development baseline"
 ```
 
 ### Task 2: Define JSON-safe public contracts
@@ -234,7 +232,7 @@ def test_scene_and_intent_reference_same_object_id():
 
 - [ ] **Step 2: Run the tests and verify the import failure**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/interfaces/test_contracts.py -v`
+Run: `conda run -n carla python -m pytest tests/unit/interfaces/test_contracts.py -v`
 
 Expected: FAIL because the interface modules do not exist.
 
@@ -381,7 +379,7 @@ __all__ = [
 
 - [ ] **Step 5: Run and commit**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/interfaces/test_contracts.py -v`
+Run: `conda run -n carla python -m pytest tests/unit/interfaces/test_contracts.py -v`
 
 Expected: `3 passed`.
 
@@ -422,7 +420,7 @@ def test_required_reference_records_exist():
 
 - [ ] **Step 2: Run the test and verify it fails on missing files**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/test_reference_contracts.py -v`
+Run: `conda run -n carla python -m pytest tests/unit/test_reference_contracts.py -v`
 
 Expected: FAIL with `FileNotFoundError`.
 
@@ -470,7 +468,7 @@ After checkout, assert that `git -C external/scenario_runner rev-parse HEAD` equ
 
 Run: `powershell -ExecutionPolicy Bypass -File .\scripts\fetch_scenario_runner.ps1`
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/test_reference_contracts.py -v`
+Run: `conda run -n carla python -m pytest tests/unit/test_reference_contracts.py -v`
 
 Expected: ScenarioRunner prints the pinned commit and the test reports `1 passed`.
 
@@ -534,7 +532,7 @@ def test_frame_buffer_returns_only_matching_frame():
 
 - [ ] **Step 2: Run and verify missing-module failures**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/simulator/test_sync.py -v`
+Run: `conda run -n carla python -m pytest tests/unit/simulator/test_sync.py -v`
 
 Expected: FAIL because simulator modules do not exist.
 
@@ -617,7 +615,7 @@ def test_world_ticks_in_synchronous_mode():
 
 - [ ] **Step 5: Run unit tests, then smoke test, then commit**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/simulator/test_sync.py -v`
+Run: `conda run -n carla python -m pytest tests/unit/simulator/test_sync.py -v`
 
 Expected: `2 passed`.
 
@@ -625,7 +623,7 @@ With CARLA running, run:
 
 ```powershell
 $env:CARLA_SMOKE="1"
-.\.venv\Scripts\python.exe -m pytest tests/smoke/test_carla_connection.py -v
+conda run -n carla python -m pytest tests/smoke/test_carla_connection.py -v
 ```
 
 Expected: `1 passed`.
@@ -654,7 +652,7 @@ from carla_driving.simulator.scenario_runner import build_scenario_command
 
 def test_build_pedestrian_smoke_command():
     command = build_scenario_command(
-        python=Path(".venv/Scripts/python.exe"),
+        python=Path("python.exe"),
         scenario_root=Path("external/scenario_runner"),
         scenario="PedestrianCrossing",
         host="127.0.0.1",
@@ -668,7 +666,7 @@ def test_build_pedestrian_smoke_command():
 
 - [ ] **Step 2: Run and verify failure**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/simulator/test_scenario_runner.py -v`
+Run: `conda run -n carla python -m pytest tests/unit/simulator/test_scenario_runner.py -v`
 
 Expected: FAIL because `build_scenario_command` does not exist.
 
@@ -707,7 +705,7 @@ param(
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 $env:PYTHONPATH = "$Root\CARLA_0.9.16\PythonAPI;$Root\external\scenario_runner;$Root\src"
-& "$Root\.venv\Scripts\python.exe" `
+& conda run -n carla python `
   "$Root\external\scenario_runner\scenario_runner.py" `
   --sync --reloadWorld --output --scenario $Scenario --host 127.0.0.1 --port $Port
 ```
@@ -720,7 +718,7 @@ Expected: ScenarioRunner connects to CARLA, spawns the pedestrian scenario, prin
 
 - [ ] **Step 5: Run tests and commit**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/simulator/test_scenario_runner.py -v`
+Run: `conda run -n carla python -m pytest tests/unit/simulator/test_scenario_runner.py -v`
 
 Expected: `1 passed`.
 
@@ -769,7 +767,7 @@ def test_blocked_lane_becomes_stop():
 
 - [ ] **Step 2: Run and verify failure**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/safety/test_arbiter.py -v`
+Run: `conda run -n carla python -m pytest tests/unit/safety/test_arbiter.py -v`
 
 Expected: FAIL because the arbiter does not exist.
 
@@ -811,7 +809,7 @@ class SafetyArbiter:
 
 - [ ] **Step 4: Run and commit**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/safety/test_arbiter.py -v`
+Run: `conda run -n carla python -m pytest tests/unit/safety/test_arbiter.py -v`
 
 Expected: `2 passed`.
 
@@ -864,7 +862,7 @@ def test_class_normalization():
 
 - [ ] **Step 2: Run and verify failures**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/perception -v`
+Run: `conda run -n carla python -m pytest tests/unit/perception -v`
 
 Expected: FAIL because perception modules do not exist.
 
@@ -962,9 +960,9 @@ class UltralyticsDetector:
 
 - [ ] **Step 4: Install only the perception group, run tests, and commit**
 
-Run: `.\.venv\Scripts\python.exe -m pip install -e ".[perception]"`
+Run: `conda run -n carla python -m pip install -e ".[perception]"`
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/perception -v`
+Run: `conda run -n carla python -m pytest tests/unit/perception -v`
 
 Expected: `2 passed`.
 
@@ -1014,7 +1012,7 @@ def test_object_id_stays_stable_across_nearby_frames():
 
 - [ ] **Step 2: Run and verify failure**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/perception/test_fusion.py -v`
+Run: `conda run -n carla python -m pytest tests/unit/perception/test_fusion.py -v`
 
 Expected: FAIL because fusion is absent.
 
@@ -1099,7 +1097,7 @@ Extend `tests/unit/perception/test_fusion.py` to convert `FusedObject` instances
 
 - [ ] **Step 5: Run and commit**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/perception tests/unit/interfaces -v`
+Run: `conda run -n carla python -m pytest tests/unit/perception tests/unit/interfaces -v`
 
 Expected: all perception and interface tests pass.
 
@@ -1156,7 +1154,7 @@ def test_nearest_front_pedestrian_wins():
 
 - [ ] **Step 2: Run and verify failures**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/alignment -v`
+Run: `conda run -n carla python -m pytest tests/unit/alignment -v`
 
 Expected: FAIL because alignment modules do not exist.
 
@@ -1217,7 +1215,7 @@ Extend the resolver with a `max_distance_gap_m=1.0` ambiguity guard: if the two 
 
 - [ ] **Step 5: Run and commit**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/alignment -v`
+Run: `conda run -n carla python -m pytest tests/unit/alignment -v`
 
 Expected: all alignment tests pass.
 
@@ -1265,7 +1263,7 @@ def test_ambiguous_command_uses_vlm():
 
 - [ ] **Step 2: Run and verify failures**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/decision/test_orchestrator.py -v`
+Run: `conda run -n carla python -m pytest tests/unit/decision/test_orchestrator.py -v`
 
 Expected: FAIL because decision modules do not exist.
 
@@ -1334,7 +1332,7 @@ class DecisionOrchestrator:
 
 - [ ] **Step 5: Run and commit**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/decision tests/unit/alignment -v`
+Run: `conda run -n carla python -m pytest tests/unit/decision tests/unit/alignment -v`
 
 Expected: all language/decision tests pass.
 
@@ -1366,7 +1364,7 @@ def test_prompt_limits_actions_and_requests_json():
 
 - [ ] **Step 2: Run and verify failure**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/alignment/test_vlm_output.py -v`
+Run: `conda run -n carla python -m pytest tests/unit/alignment/test_vlm_output.py -v`
 
 Expected: FAIL because the Qwen adapter does not exist.
 
@@ -1424,7 +1422,7 @@ Run first with CARLA stopped, then with `CarlaUE4.exe -quality-level=Low` runnin
 
 - [ ] **Step 5: Run unit tests and commit code, not generated benchmark data**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/alignment/test_vlm_output.py -v`
+Run: `conda run -n carla python -m pytest tests/unit/alignment/test_vlm_output.py -v`
 
 Expected: `1 passed`.
 
@@ -1468,7 +1466,7 @@ def test_avoid_must_finish_before_speed_change():
 
 - [ ] **Step 2: Run and verify failure**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/decision/test_sequencer.py -v`
+Run: `conda run -n carla python -m pytest tests/unit/decision/test_sequencer.py -v`
 
 Expected: FAIL because the sequencer is absent.
 
@@ -1501,7 +1499,7 @@ class ActionSequencer:
 
 - [ ] **Step 5: Run and commit**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/decision/test_sequencer.py tests/unit/control/test_goal_mapping.py -v`
+Run: `conda run -n carla python -m pytest tests/unit/decision/test_sequencer.py tests/unit/control/test_goal_mapping.py -v`
 
 Expected: all sequencer/control mapping tests pass.
 
@@ -1543,7 +1541,7 @@ def test_six_scenario_configs_have_scoring_contracts():
 
 - [ ] **Step 2: Run and verify failure**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/evaluation/test_scenario_configs.py -v`
+Run: `conda run -n carla python -m pytest tests/unit/evaluation/test_scenario_configs.py -v`
 
 Expected: FAIL because zero configs exist.
 
@@ -1576,7 +1574,7 @@ Use local custom orchestration for `basic_control`, `turn_lane_change`, and `adv
 
 - [ ] **Step 4: Run tests and commit**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/evaluation/test_scenario_configs.py -v`
+Run: `conda run -n carla python -m pytest tests/unit/evaluation/test_scenario_configs.py -v`
 
 Expected: `1 passed`.
 
@@ -1618,7 +1616,7 @@ def test_completion_rate_and_alignment_accuracy():
 
 - [ ] **Step 2: Run and verify failure**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/evaluation/test_metrics.py -v`
+Run: `conda run -n carla python -m pytest tests/unit/evaluation/test_metrics.py -v`
 
 Expected: FAIL because evaluation modules do not exist.
 
@@ -1663,7 +1661,7 @@ def summarize_runs(runs: list[dict]) -> dict:
 
 - [ ] **Step 4: Run and commit**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/evaluation -v`
+Run: `conda run -n carla python -m pytest tests/unit/evaluation -v`
 
 Expected: all evaluation tests pass.
 
@@ -1707,7 +1705,7 @@ def test_stop_command_survives_decision_and_safety():
 
 - [ ] **Step 2: Run and verify the integration baseline**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/integration/test_decision_pipeline.py -v`
+Run: `conda run -n carla python -m pytest tests/integration/test_decision_pipeline.py -v`
 
 Expected: `1 passed`; if it fails, repair earlier contracts before creating the live runner.
 
@@ -1744,7 +1742,7 @@ Expected: `1 passed`; if it fails, repair earlier contracts before creating the 
 
 - [ ] **Step 5: Run unit/integration/smoke suites and commit**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit tests/integration -v`
+Run: `conda run -n carla python -m pytest tests/unit tests/integration -v`
 
 Expected: all tests pass.
 
@@ -1752,7 +1750,7 @@ With CARLA running:
 
 ```powershell
 $env:CARLA_SMOKE="1"
-.\.venv\Scripts\python.exe -m pytest tests/smoke/test_end_to_end_scenario.py -v
+conda run -n carla python -m pytest tests/smoke/test_end_to_end_scenario.py -v
 ```
 
 Expected: `1 passed` and a JSONL run artifact.
@@ -1814,7 +1812,7 @@ def test_scene_never_leaks_between_train_and_test():
 
 - [ ] **Step 2: Run and verify missing-module failures**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/data -v`
+Run: `conda run -n carla python -m pytest tests/unit/data -v`
 
 Expected: FAIL because the data package and fixtures do not exist.
 
@@ -1887,7 +1885,7 @@ Each fixture must contain its source-specific scene, timestamp, front RGB, top L
 
 - [ ] **Step 5: Run, document source licenses, and commit**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/unit/data -v`
+Run: `conda run -n carla python -m pytest tests/unit/data -v`
 
 Expected: all data adapter and split tests pass.
 
@@ -1925,7 +1923,7 @@ def test_acceptance_report_meets_internal_targets():
 
 - [ ] **Step 2: Verify the test fails before acceptance artifacts exist**
 
-Run: `.\.venv\Scripts\python.exe -m pytest tests/acceptance/test_report_thresholds.py -v`
+Run: `conda run -n carla python -m pytest tests/acceptance/test_report_thresholds.py -v`
 
 Expected: FAIL with `FileNotFoundError`.
 
@@ -1937,7 +1935,7 @@ Expected: FAIL with `FileNotFoundError`.
 
 Run: `powershell -ExecutionPolicy Bypass -File .\scripts\run_acceptance.ps1`
 
-Then run: `.\.venv\Scripts\python.exe -m pytest tests/acceptance/test_report_thresholds.py -v`
+Then run: `conda run -n carla python -m pytest tests/acceptance/test_report_thresholds.py -v`
 
 Expected: `1 passed`. Partial reruns are diagnostic only and cannot establish release readiness.
 
@@ -1956,7 +1954,7 @@ git tag basic-track-demo-v1
 Run all commands from the repository root with CARLA stopped unless noted:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/unit tests/integration -v
+conda run -n carla python -m pytest tests/unit tests/integration -v
 git diff --check
 git status --short
 ```
@@ -1965,9 +1963,9 @@ Then start CARLA in low-quality mode and run:
 
 ```powershell
 $env:CARLA_SMOKE="1"
-.\.venv\Scripts\python.exe -m pytest tests/smoke -v
+conda run -n carla python -m pytest tests/smoke -v
 powershell -ExecutionPolicy Bypass -File .\scripts\run_acceptance.ps1
-.\.venv\Scripts\python.exe -m pytest tests/acceptance/test_report_thresholds.py -v
+conda run -n carla python -m pytest tests/acceptance/test_report_thresholds.py -v
 ```
 
 Release evidence requires fresh output from all four suites. Do not infer acceptance from individual scenario videos or previously generated summaries.

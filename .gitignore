@@ -6,3 +6,4 @@ logs/
 data/
 *.egg-info/
 .vscode/
+.worktrees/
