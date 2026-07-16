@@ -20,7 +20,7 @@ from funasr.utils.postprocess_utils import rich_transcription_postprocess
 from peft import PeftModel
 
 DEVICE = "cuda:0"
-LORA_DIR = "lora_finetuned"
+LORA_DIR = "lora_dialect"
 
 _EMOJI = re.compile(r"[\U0001F000-\U0001FAFF\u2600-\u27BF\u2190-\u21FF\u2B00-\u2BFF]")
 def _strip(t):
@@ -47,8 +47,12 @@ class ASR:
         except Exception:
             pass
 
-    def _load(self, audio_path):
-        wav, sr = sf.read(audio_path, dtype="float32")
+    def _load(self, audio):
+        # audio 可以是文件路径(str)，也可以是 numpy 数组(实时音频流)
+        if isinstance(audio, str):
+            wav, sr = sf.read(audio, dtype="float32")
+        else:
+            wav, sr = np.asarray(audio, dtype="float32"), 16000   # 数组默认已是16k
         if wav.ndim > 1: wav = wav.mean(1)
         if sr != 16000:
             n = int(len(wav) * 16000 / sr)
@@ -56,10 +60,10 @@ class ASR:
                             np.arange(len(wav)), wav).astype("float32")
         return wav
 
-    def transcribe(self, audio_path, correct=True, t_audio_start_ns=None):
+    def transcribe(self, audio, correct=True, t_audio_start_ns=None):
         if t_audio_start_ns is None:
             t_audio_start_ns = time.monotonic_ns()
-        wav = self._load(audio_path)
+        wav = self._load(audio)
         t0 = time.monotonic_ns()
 
         # 1) VAD：找出有效语音段 [[start_ms, end_ms], ...]

@@ -28,13 +28,16 @@ def _get_asr():
     return _asr
 
 
-def audio_to_command(audio_path: str) -> dict:
-    """车辆控制组的主入口：输入音频路径，返回 DrivingCommand dict。"""
+def audio_to_command(audio, t_audio_start_ns: int = None) -> dict:
+    """车辆控制组主入口。
+    audio: 音频文件路径(str) 或 16kHz单声道 numpy 数组(实时流)。
+    t_audio_start_ns: 实时场景传入采音起始时刻(time.monotonic_ns)，更准。
+    返回 DrivingCommand dict。"""
     asr = _get_asr()
     cmd_id = f"cmd_{uuid.uuid4().hex[:8]}"
     t0 = time.monotonic_ns()
 
-    a = asr.transcribe(audio_path)
+    a = asr.transcribe(audio, t_audio_start_ns=t_audio_start_ns)
     t_asr = time.monotonic_ns()
     b1 = process_asr_text(request_id=cmd_id, text=a["text"], asr_confidence=a["asr_confidence"])
     b2 = parse_command(b1)
