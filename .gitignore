@@ -13,3 +13,6 @@ data/
 CARLA_0.9.16/
 AdditionalMaps_0.9.16/
 artifacts/logs/
+*.zip
+*.mp3
+*.wav
